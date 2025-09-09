@@ -15,7 +15,7 @@ use rocket_cors::{CorsOptions, AllowedOrigins, AllowedHeaders};
 use std::collections::HashSet;
 
 const HOST: Absolute<'static> = uri!("http://ddns.curesky.site:7878");
-const PASSWORD: &str = "passwd"; // 使用前记得修改密码哦
+const PASSWORD: &str = "7RCVygHdGTyfeA1KLDed"; // 使用前记得修改密码哦
 
 // 密码验证结构体
 struct AuthGuard;
@@ -54,17 +54,21 @@ async fn retrieve(_auth: AuthGuard, id: PasteId<'_>, password: &str) -> Option<F
 }
 
 // 文件上传（需要密码验证）
-#[post("/save?<password>", data = "<paste>")]
-async fn save(_auth: AuthGuard, paste: Data<'_>, password: &str) -> std::io::Result<String> {
+#[post("/save?<password>&<filename>", data = "<paste>")]
+async fn save(_auth: AuthGuard, filename: &str, paste: Data<'_>, password: &str) -> std::io::Result<String> {
     let _ = password; // 消除警告
     
     let id = PasteId::new(10);
+    let name_file_path = format!("{}.name", id.file_path().display());
+    std::fs::write(&name_file_path, filename)?;
+
+
     paste.open(200.gibibytes()).into_file(id.file_path()).await?;
     Ok(uri!(HOST, retrieve(&id, PASSWORD)).to_string())
 }
 
 #[get("/list?<password>")]
-async fn list_files(_auth: AuthGuard, password: &str) -> Result<Json<Vec<String>>, Status> {
+async fn list_files(_auth: AuthGuard, password: &str) -> Result<Json<Vec<(String, u64, String)>>, Status> {
     let _ = password; // 消除警告
     
     let upload_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/", "upload");
@@ -77,8 +81,28 @@ async fn list_files(_auth: AuthGuard, password: &str) -> Result<Json<Vec<String>
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
-            if let Ok(file_name) = entry.file_name().into_string() {
-                files.push(file_name);
+            let path = entry.path();
+            if path.is_file() && path.extension().unwrap_or_default() != "name" {
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    let file_id = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    
+                    // 检查对应的 .name 文件
+                    let name_file_path = path.with_extension("name");
+                    let display_name = if name_file_path.exists() {
+                        // 从 .name 文件读取原始文件名
+                        std::fs::read_to_string(&name_file_path)
+                            .unwrap_or_else(|_| file_id.clone())
+                    } else {
+                        // 不存在 .name 文件，直接返回 ID
+                        file_id.clone()
+                    };
+                    
+                    let file_size = metadata.len();
+                    files.push((file_id, file_size, display_name));
+                }
             }
         }
     }
@@ -87,12 +111,13 @@ async fn list_files(_auth: AuthGuard, password: &str) -> Result<Json<Vec<String>
 }
 
 
+
 #[launch]
 fn rocket() -> _ {
     // 配置服务器监听地址 - 监听所有网络接口
     let config = rocket::Config {
         address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)),
-        port: 8000,
+        port: 7878,
         // 增加请求体大小限制（适合文件上传）
         limits: rocket::data::Limits::new()
             .limit("file", 200.gibibytes())
@@ -138,7 +163,7 @@ fn rocket() -> _ {
         std::env::set_var("ROCKET_LOG_LEVEL", "normal");
     }
 
-    println!("🚀 服务器启动在: http://0.0.0.0:8000");
+    println!("🚀 服务器启动在: http://0.0.0.0:7878");
     println!("📁 上传目录: {}", upload_dir);
     println!("🌐 CORS 已启用，允许所有来源");
 
