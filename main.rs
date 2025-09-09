@@ -14,8 +14,8 @@ use rocket::{get, post, routes};
 use rocket_cors::{CorsOptions, AllowedOrigins, AllowedHeaders};
 use std::collections::HashSet;
 
-const HOST: Absolute<'static> = uri!("http://ddns.curesky.site:7878");
-const PASSWORD: &str = "passwd"; // 使用前记得修改密码哦
+const HOST: Absolute<'static> = uri!("http://localhost:8000");
+const PASSWORD: &str = "password"; // 使用前记得修改密码哦
 
 // 密码验证结构体
 struct AuthGuard;
@@ -86,35 +86,17 @@ async fn list_files(_auth: AuthGuard, password: &str) -> Result<Json<Vec<String>
     Ok(Json(files))
 }
 
-
 #[launch]
 fn rocket() -> _ {
-    // 配置服务器监听地址 - 监听所有网络接口
-    let config = rocket::Config {
-        address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)),
-        port: 8000,
-        // 增加请求体大小限制（适合文件上传）
-        limits: rocket::data::Limits::new()
-            .limit("file", 200.gibibytes())
-            .limit("data-form", 200.gibibytes()),
-        ..rocket::Config::default()
-    };
-
     // 配置CORS选项，允许所有来源
     let cors = CorsOptions {
         allowed_origins: AllowedOrigins::all(),
         allowed_methods: vec![
-            "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"
+            "GET", "POST", "PUT", "DELETE", "OPTIONS"
         ].into_iter().map(|s| s.parse().unwrap()).collect(),
         allowed_headers: AllowedHeaders::all(),
         allow_credentials: true,
-        expose_headers: {
-            let mut set = HashSet::new();
-            set.insert("Content-Type".to_string());
-            set.insert("Content-Length".to_string());
-            set.insert("Content-Disposition".to_string());
-            set
-        },
+        expose_headers: HashSet::new(),
         max_age: Some(3600),
         send_wildcard: false,
         fairing_route_base: "/".to_string(),
@@ -123,28 +105,7 @@ fn rocket() -> _ {
     .to_cors()
     .expect("Failed to create CORS fairing");
 
-    // 确保上传目录存在
-    let upload_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/", "upload");
-    if !std::path::Path::new(upload_dir).exists() {
-        if let Err(e) = std::fs::create_dir_all(upload_dir) {
-            eprintln!("警告: 无法创建上传目录 {}: {}", upload_dir, e);
-        } else {
-            println!("已创建上传目录: {}", upload_dir);
-        }
-    }
-
-    // 添加日志初始化
-    if std::env::var("ROCKET_LOG_LEVEL").is_err() {
-        std::env::set_var("ROCKET_LOG_LEVEL", "normal");
-    }
-
-    println!("🚀 服务器启动在: http://0.0.0.0:8000");
-    println!("📁 上传目录: {}", upload_dir);
-    println!("🌐 CORS 已启用，允许所有来源");
-
-    rocket::custom(config)
+    rocket::build()
         .mount("/", routes![index, save, retrieve, list_files])
         .attach(cors)
-        // 添加自定义错误处理
-      
 }
